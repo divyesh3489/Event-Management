@@ -12,7 +12,7 @@ This project is a Django-based event management system that includes a REST API 
 ### Option A: Local development
 1. Clone the repository:
    ```
-   git clone https://github.com/divyesh3489/Task_manangement
+   git clone https://github.com/divyesh3489/Event-Management
    cd Event-Management
    ```
 2. Create a virtual environment:
