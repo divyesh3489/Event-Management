@@ -1,0 +1,284 @@
+{% extends "events/base.html" %}
+{% block title %}New Event — Event Manager{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h1 class="h3 mb-0" id="form-title">New Event</h1>
+      <a class="btn btn-outline-secondary btn-sm" href="{% url 'events:list' %}">Back to list</a>
+    </div>
+
+    <div id="login-prompt" class="alert alert-info" style="display: none;">
+      <a href="{% url 'events:list' %}">Sign in</a> to create or edit events.
+    </div>
+
+    <div id="form-wrapper" style="display: none;">
+      <form id="event-form" class="card shadow-sm">
+        <div class="card-body">
+          <div class="mb-3">
+            <label for="title" class="form-label">Title</label>
+            <input type="text" class="form-control" id="title" name="title" required maxlength="255" placeholder="Event title">
+          </div>
+          <div class="mb-3">
+            <label for="description" class="form-label">Description</label>
+            <textarea class="form-control" id="description" name="description" rows="3" placeholder="Optional description"></textarea>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label for="start_date" class="form-label">Start</label>
+              <input type="datetime-local" class="form-control" id="start_date" name="start_date" required>
+            </div>
+            <div class="col-md-6">
+              <label for="end_date" class="form-label">End</label>
+              <input type="datetime-local" class="form-control" id="end_date" name="end_date" required>
+            </div>
+          </div>
+          <div class="card mt-3">
+            <div class="card-body">
+              <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="recurrence_enabled" name="recurrence_enabled">
+                <label class="form-check-label" for="recurrence_enabled">Repeat event</label>
+              </div>
+              <div id="recurrence-fields" style="display: none;">
+                <div class="mb-3">
+                  <label for="recurrence_frequency" class="form-label">Frequency</label>
+                  <select class="form-select" id="recurrence_frequency" name="recurrence_frequency">
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+                <div class="mb-3">
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="recurrence_end_type" id="recurrence_end_count" value="count" checked>
+                    <label class="form-check-label" for="recurrence_end_count">End after</label>
+                  </div>
+                  <div class="form-check form-check-inline">
+                    <input class="form-check-input" type="radio" name="recurrence_end_type" id="recurrence_end_date" value="end_date">
+                    <label class="form-check-label" for="recurrence_end_date">End by date</label>
+                  </div>
+                </div>
+                <div class="row g-2">
+                  <div class="col-auto" id="recurrence-count-wrap">
+                    <input type="number" class="form-control form-control-sm" id="recurrence_count" name="recurrence_count" min="1" value="5" placeholder="Occurrences">
+                  </div>
+                  <div class="col-auto" id="recurrence-end-date-wrap" style="display: none;">
+                    <input type="datetime-local" class="form-control form-control-sm" id="recurrence_end_date_val" name="recurrence_end_date_val">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id="form-errors" class="alert alert-danger mt-3" style="display: none;"></div>
+          <div class="mt-4 d-flex gap-2">
+            <button type="submit" class="btn btn-primary" id="submit-btn">Save</button>
+            <a class="btn btn-outline-secondary" href="{% url 'events:list' %}">Cancel</a>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  const form = document.getElementById('event-form');
+  const formWrapper = document.getElementById('form-wrapper');
+  const loginPrompt = document.getElementById('login-prompt');
+  const formTitle = document.getElementById('form-title');
+  const submitBtn = document.getElementById('submit-btn');
+  const errorsEl = document.getElementById('form-errors');
+
+  const params = new URLSearchParams(window.location.search);
+  const editId = params.get('id');
+  const isEdit = !!editId;
+
+  function showErrors(err) {
+    if (!err || typeof err !== 'object') {
+      errorsEl.textContent = err && String(err) || 'Something went wrong.';
+      errorsEl.style.display = 'block';
+      return;
+    }
+    const parts = [];
+    for (const k in err) {
+      const v = err[k];
+      parts.push(k + ': ' + (Array.isArray(v) ? v.join(' ') : v));
+    }
+    errorsEl.innerHTML = parts.map(function(p) { return '<div>' + escapeHtml(p) + '</div>'; }).join('');
+    errorsEl.style.display = 'block';
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function hideErrors() {
+    errorsEl.style.display = 'none';
+    errorsEl.innerHTML = '';
+  }
+
+  function toISO(datetimeLocal) {
+    if (!datetimeLocal) return null;
+    return new Date(datetimeLocal).toISOString();
+  }
+
+  var recurrenceEnabled = document.getElementById('recurrence_enabled');
+  var recurrenceFields = document.getElementById('recurrence-fields');
+  var recurrenceEndCount = document.getElementById('recurrence_end_count');
+  var recurrenceEndDate = document.getElementById('recurrence_end_date');
+  var countWrap = document.getElementById('recurrence-count-wrap');
+  var endDateWrap = document.getElementById('recurrence-end-date-wrap');
+
+  if (recurrenceEnabled) {
+    recurrenceEnabled.addEventListener('change', function() {
+      recurrenceFields.style.display = this.checked ? 'block' : 'none';
+    });
+  }
+  function toggleRecurrenceEndType() {
+    var useCount = document.getElementById('recurrence_end_count').checked;
+    if (countWrap) countWrap.style.display = useCount ? 'block' : 'none';
+    if (endDateWrap) endDateWrap.style.display = useCount ? 'none' : 'block';
+  }
+  if (recurrenceEndCount) recurrenceEndCount.addEventListener('change', toggleRecurrenceEndType);
+  if (recurrenceEndDate) recurrenceEndDate.addEventListener('change', toggleRecurrenceEndType);
+
+  if (isEdit) {
+    formTitle.textContent = 'Edit Event';
+    submitBtn.textContent = 'Update';
+  }
+
+  if (!getToken()) {
+    loginPrompt.style.display = 'block';
+    formWrapper.style.display = 'none';
+  } else {
+    loginPrompt.style.display = 'none';
+    formWrapper.style.display = 'block';
+  }
+
+  if (isEdit && getToken()) {
+    (async function loadEvent() {
+      try {
+        const r = await fetch(API_BASE + '/events/' + editId + '/', { headers: authHeaders() });
+        if (r.status === 401) {
+          localStorage.removeItem('access');
+          localStorage.removeItem('refresh');
+          loginPrompt.style.display = 'block';
+          formWrapper.style.display = 'none';
+          return;
+        }
+        if (!r.ok) throw new Error('Failed to load event');
+        const data = await r.json();
+        document.getElementById('title').value = data.title || '';
+        document.getElementById('description').value = data.description || '';
+        if (data.start_date) {
+          const d = new Date(data.start_date);
+          document.getElementById('start_date').value = d.toISOString().slice(0, 16);
+        }
+        if (data.end_date) {
+          const d = new Date(data.end_date);
+          document.getElementById('end_date').value = d.toISOString().slice(0, 16);
+        }
+        if (data.recurrence) {
+          recurrenceEnabled.checked = true;
+          recurrenceFields.style.display = 'block';
+          var freq = (data.recurrence.frequency || 'weekly').toLowerCase();
+          var freqEl = document.getElementById('recurrence_frequency');
+          if (freqEl) freqEl.value = freq;
+          if (data.recurrence.end_date) {
+            recurrenceEndDate.checked = true;
+            recurrenceEndCount.checked = false;
+            if (countWrap) countWrap.style.display = 'none';
+            if (endDateWrap) endDateWrap.style.display = 'block';
+            var ed = new Date(data.recurrence.end_date);
+            var endDateVal = document.getElementById('recurrence_end_date_val');
+            if (endDateVal) endDateVal.value = ed.toISOString().slice(0, 16);
+          } else {
+            recurrenceEndCount.checked = true;
+            recurrenceEndDate.checked = false;
+            if (countWrap) countWrap.style.display = 'block';
+            if (endDateWrap) endDateWrap.style.display = 'none';
+            var countEl = document.getElementById('recurrence_count');
+            if (countEl) countEl.value = data.recurrence.count || 5;
+          }
+        } else {
+          recurrenceEnabled.checked = false;
+          recurrenceFields.style.display = 'none';
+        }
+      } catch (e) {
+        showErrors({ '': e.message });
+      }
+    })();
+  }
+
+  form.addEventListener('submit', async function(ev) {
+    ev.preventDefault();
+    if (!getToken()) return;
+    hideErrors();
+    submitBtn.disabled = true;
+
+    const payload = {
+      title: document.getElementById('title').value.trim(),
+      description: document.getElementById('description').value.trim(),
+      start_date: toISO(document.getElementById('start_date').value),
+      end_date: toISO(document.getElementById('end_date').value)
+    };
+    if (recurrenceEnabled && recurrenceEnabled.checked) {
+      var endTypeCount = document.getElementById('recurrence_end_count').checked;
+      payload.recurrence = {
+        frequency: document.getElementById('recurrence_frequency').value,
+        end_date: endTypeCount ? null : toISO(document.getElementById('recurrence_end_date_val').value),
+        count: endTypeCount ? parseInt(document.getElementById('recurrence_count').value, 10) || 5 : 0
+      };
+    } else {
+      payload.recurrence = null;
+    }
+
+    const url = isEdit ? (API_BASE + '/events/' + editId + '/') : (API_BASE + '/events/');
+    const method = isEdit ? 'PUT' : 'POST';
+
+    try {
+      const r = await fetch(url, {
+        method: method,
+        headers: authHeaders(),
+        body: JSON.stringify(payload)
+      });
+      const data = await r.json().catch(function() { return {}; });
+
+      if (r.status === 401) {
+        setToken(null, null);
+        loginPrompt.style.display = 'block';
+        formWrapper.style.display = 'none';
+        submitBtn.disabled = false;
+        return;
+      }
+
+      if (!r.ok) {
+        showErrors(data);
+        submitBtn.disabled = false;
+        return;
+      }
+
+      submitBtn.disabled = false;
+      var existing = form.querySelector('.alert-success');
+      if (existing) existing.remove();
+      var msg = document.createElement('div');
+      msg.className = 'alert alert-success mt-3';
+      msg.innerHTML = isEdit ? 'Event updated. <a href="{% url 'events:list' %}">Back to list</a>' : 'Event created. <a href="{% url 'events:list' %}">Back to list</a>';
+      form.insertBefore(msg, form.firstChild);
+      if (!isEdit) {
+        document.getElementById('event-form').reset();
+        hideErrors();
+      }
+    } catch (e) {
+      showErrors({ '': e.message });
+      submitBtn.disabled = false;
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,201 @@
+{% extends "events/base.html" %}
+{% block title %}Events — Event Manager{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Events</h1>
+  <a class="btn btn-primary" href="{% url 'events:form' %}"><i class="bi bi-plus-lg"></i> New Event</a>
+</div>
+
+<div id="login-section" class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Sign in</h5>
+    <form id="login-form" class="row g-2 align-items-end">
+      <div class="col-auto">
+        <label class="form-label small mb-0">Email</label>
+        <input type="email" class="form-control form-control-sm" name="email" required>
+      </div>
+      <div class="col-auto">
+        <label class="form-label small mb-0">Password</label>
+        <input type="password" class="form-control form-control-sm" name="password" required>
+      </div>
+      <div class="col-auto">
+        <button type="submit" class="btn btn-primary btn-sm">Login</button>
+        <a href="{% url 'events:register' %}" class="btn btn-outline-secondary btn-sm ms-1">Register</a>
+      </div>
+    </form>
+    <div id="login-error" class="text-danger small mt-2"></div>
+  </div>
+</div>
+
+<div id="events-container" style="display: none;">
+  <div id="events-loading" class="text-center py-5 text-muted">
+    <div class="spinner-border" role="status"></div>
+    <p class="mt-2 mb-0">Loading events…</p>
+  </div>
+  <div id="events-list" class="row g-3" style="display: none;"></div>
+  <div id="events-empty" class="text-center py-5 text-muted" style="display: none;">
+    No events yet. <a href="{% url 'events:form' %}">Create one</a>.
+  </div>
+  <div id="events-error" class="alert alert-danger" style="display: none;"></div>
+</div>
+
+
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  const container = document.getElementById('events-container');
+  const listEl = document.getElementById('events-list');
+  const loadingEl = document.getElementById('events-loading');
+  const emptyEl = document.getElementById('events-empty');
+  const errorEl = document.getElementById('events-error');
+  const loginSection = document.getElementById('login-section');
+  const authStatus = document.getElementById('auth-status');
+
+  function showAuthRequired() {
+    container.style.display = 'none';
+    loginSection.style.display = 'block';
+
+  }
+
+  function showAuthenticated() {
+    loginSection.style.display = 'none';
+    container.style.display = 'block';
+  
+  }
+
+  function showList(events) {
+    loadingEl.style.display = 'none';
+    errorEl.style.display = 'none';
+    if (!events || events.length === 0) {
+      emptyEl.style.display = 'block';
+      listEl.style.display = 'none';
+      return;
+    }
+    emptyEl.style.display = 'none';
+    listEl.style.display = 'flex';
+    listEl.innerHTML = events.map(function(ev) {
+      const start = ev.start_date ? new Date(ev.start_date).toLocaleString() : '—';
+      const end = ev.end_date ? new Date(ev.end_date).toLocaleString() : '—';
+      const desc = (ev.description || '').slice(0, 120);
+      const editUrl = "{% url 'events:form' %}" + '?id=' + ev.id;
+      return (
+        '<div class="col-md-6 col-lg-4" data-event-id="' + ev.id + '">' +
+          '<div class="card h-100 shadow-sm">' +
+            '<div class="card-body">' +
+              '<h5 class="card-title">' + escapeHtml(ev.title) + '</h5>' +
+              (desc ? '<p class="card-text small text-muted">' + escapeHtml(desc) + (ev.description && ev.description.length > 120 ? '…' : '') + '</p>' : '') +
+              '<p class="small mb-1"><strong>Start:</strong> ' + escapeHtml(start) + '</p>' +
+              '<p class="small mb-2"><strong>End:</strong> ' + escapeHtml(end) + '</p>' +
+              '<div class="d-flex gap-2">' +
+                '<a href="' + editUrl + '" class="btn btn-outline-primary btn-sm">Edit</a>' +
+                '<button type="button" class="btn btn-outline-danger btn-sm btn-delete" data-id="' + ev.id + '" data-title="' + escapeHtml(ev.title) + '">Delete</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join('');
+    listEl.querySelectorAll('.btn-delete').forEach(function(btn) {
+      btn.addEventListener('click', handleDelete);
+    });
+  }
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  async function loadEvents() {
+    const token = getToken();
+    if (!token) {
+      showAuthRequired();
+      return;
+    }
+    showAuthenticated();
+    loadingEl.style.display = 'block';
+    listEl.style.display = 'none';
+    emptyEl.style.display = 'none';
+    errorEl.style.display = 'none';
+    try {
+      const r = await fetch(API_BASE + '/events/', { headers: authHeaders() });
+      if (r.status === 401) {
+        setToken(null, null);
+        showAuthRequired();
+        return;
+      }
+      if (!r.ok) throw new Error('Failed to load events: ' + r.status);
+      const data = await r.json();
+      showList(data);
+    } catch (e) {
+      loadingEl.style.display = 'none';
+      errorEl.textContent = e.message || 'Error loading events.';
+      errorEl.style.display = 'block';
+    }
+  }
+
+  async function handleDelete(e) {
+    const btn = e.currentTarget;
+    const id = btn.getAttribute('data-id');
+    const title = btn.getAttribute('data-title');
+    if (!confirm(`Delete event "${title}"?`)) return;
+    try {
+      const r = await fetch(API_BASE + '/events/' + id + '/', {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      if (r.status === 401) {
+        setToken(null, null);
+        showAuthRequired();
+        return;
+      }
+      if (!r.ok) throw new Error('Delete failed');
+      const card = document.querySelector('[data-event-id="' + id + '"]');
+      if (card) card.remove();
+      var remaining = document.querySelectorAll('#events-list [data-event-id]');
+      if (remaining.length === 0) {
+        document.getElementById('events-empty').style.display = 'block';
+        listEl.style.display = 'none';
+      }
+    } catch (err) {
+      alert(err.message || 'Could not delete event.');
+    }
+  }
+
+  document.getElementById('login-form').addEventListener('submit', async function(ev) {
+    ev.preventDefault();
+    const errEl = document.getElementById('login-error');
+    errEl.textContent = '';
+    const form = ev.target;
+    const body = JSON.stringify({
+      email: form.email.value,
+      password: form.password.value
+    });
+    try {
+      const r = await fetch(API_BASE + '/users/login/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        errEl.textContent = data.detail || data.message || 'Login failed';
+        return;
+      }
+      setToken(data.access, data.refresh);
+      form.reset();
+      loadEvents();
+    } catch (e) {
+      errEl.textContent = e.message || 'Login failed';
+    }
+  });
+
+  loadEvents();
+})();
+</script>
+{% endblock %}

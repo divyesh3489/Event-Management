@@ -1,0 +1,118 @@
+{% extends "events/base.html" %}
+{% block title %}Calendar — Event Manager{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h3 mb-0">Calendar</h1>
+  <a class="btn btn-outline-primary btn-sm" href="{% url 'events:list' %}">Events list</a>
+</div>
+
+<div id="login-prompt" class="alert alert-info" style="display: none;">
+  <a href="{% url 'events:list' %}">Sign in</a> to view the calendar.
+</div>
+
+<div id="calendar-wrapper" style="display: none;">
+  <div id="calendar"></div>
+</div>
+
+<div class="modal fade" id="eventDetailModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="eventDetailTitle">Event</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="eventDetailBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
+<script>
+(function() {
+  const loginPrompt = document.getElementById('login-prompt');
+  const calendarWrapper = document.getElementById('calendar-wrapper');
+  const calendarEl = document.getElementById('calendar');
+  const detailModal = new bootstrap.Modal(document.getElementById('eventDetailModal'));
+  const detailTitle = document.getElementById('eventDetailTitle');
+  const detailBody = document.getElementById('eventDetailBody');
+
+  if (!getToken()) {
+    loginPrompt.style.display = 'block';
+    calendarWrapper.style.display = 'none';
+    return;
+  }
+  loginPrompt.style.display = 'none';
+  calendarWrapper.style.display = 'block';
+
+  function eventSource(info, successCallback, failureCallback) {
+    const start = info.start;
+    const startDate = start.getFullYear() + '-' + String(start.getMonth() + 1).padStart(2, '0') + '-' + String(start.getDate()).padStart(2, '0');
+    const url = API_BASE + '/event-occurrences/?start_date=' + encodeURIComponent(startDate);
+    fetch(url, { headers: authHeaders() })
+      .then(function(r) {
+        if (r.status === 401) {
+          failureCallback();
+          return;
+        }
+        return r.json();
+      })
+      .then(function(data) {
+        if (!data || !Array.isArray(data)) {
+          successCallback([]);
+          return;
+        }
+        const events = data.map(function(o) {
+          return {
+            id: o.id,
+            title: o.event_name || o.title || 'Event',
+            start: o.start,
+            end: o.end,
+            extendedProps: o
+          };
+        });
+        successCallback(events);
+      })
+      .catch(function() { failureCallback(); });
+  }
+
+  const calendar = new FullCalendar.Calendar(calendarEl, {
+    initialView: 'dayGridMonth',
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: 'dayGridMonth'
+    },
+    events: eventSource,
+    eventClick: function(arg) {
+      const p = arg.event.extendedProps || {};
+      detailTitle.textContent = p.event_name || p.title || arg.event.title || 'Event';
+      const start = arg.event.start ? arg.event.start.toLocaleString() : '—';
+      const end = arg.event.end ? arg.event.end.toLocaleString() : '—';
+      detailBody.innerHTML =
+        '<p class="mb-1"><strong>Start:</strong> ' + escapeHtml(start) + '</p>' +
+        '<p class="mb-1"><strong>End:</strong> ' + escapeHtml(end) + '</p>' +
+        (p.id ? '<p class="mb-0 small text-muted">ID: ' + escapeHtml(p.id) + '</p>' : '');
+      detailModal.show();
+    }
+  });
+  calendar.render();
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+})();
+</script>
+{% endblock %}

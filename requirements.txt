@@ -1,0 +1,7 @@
+django==5.0.1
+djangorestframework==3.15.2
+psycopg2==2.9.10
+djangorestframework-simplejwt==5.4.0
+django-cors-headers==4.5.0
+celery==5.3.0
+redis==5.0.0
